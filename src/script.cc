@@ -137,7 +137,7 @@ cell Script::PR_EmulateIncomingPacket(BitStream *bs, int player_id) {
                 return true;
               }
 
-              bs->resetReadPointer();
+              bs->SetReadOffset(8);
 
               return handler->onReceivePacket(*player, packet_id, *bs);
             })) {
@@ -150,7 +150,7 @@ cell Script::PR_EmulateIncomingPacket(BitStream *bs, int player_id) {
 
     if (!event_single_dispatcher->stopAtFalse(
             packet_id, [player, bs](SingleNetworkInEventHandler *handler) {
-              bs->resetReadPointer();
+              bs->SetReadOffset(8);
 
               return handler->onReceive(*player, *bs);
             })) {
