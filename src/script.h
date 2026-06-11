@@ -119,22 +119,26 @@ class Script {
 
   BitStream *GetBitStream(cell handle);
 
-  cell CallbackExec(const PublicPtr &pub, int player_id, BitStream *bs);
+  bool ExecPublic(const PublicPtr &pub, int player_id, unsigned char event_id,
+                  BitStream *bs);
+
+  bool CallbackExec(const PublicPtr &pub, int player_id, BitStream *bs);
 
   template <PR_EventType event_type>
   bool OnEvent(int player_id, unsigned char event_id, BitStream *bs) {
     if constexpr (event_type == PR_OUTGOING_PACKET) {
-      if (!CallbackExec(public_on_outcoming_packet_, player_id, bs)) {
+      if (!ExecPublic(public_on_outcoming_packet_, player_id, event_id, bs)) {
         return false;
       }
     } else if constexpr (event_type == PR_OUTGOING_RPC) {
-      if (!CallbackExec(public_on_outcoming_rpc_, player_id, bs)) {
+      if (!ExecPublic(public_on_outcoming_rpc_, player_id, event_id, bs)) {
         return false;
       }
     }
 
     if constexpr (event_type != PR_INCOMING_CUSTOM_RPC) {
-      if (!CallbackExec(std::get<event_type>(publics_), player_id, bs)) {
+      if (!ExecPublic(std::get<event_type>(publics_), player_id, event_id,
+                      bs)) {
         return false;
       }
     }
@@ -156,9 +160,6 @@ class Script {
 
   template <typename T, bool compressed = false>
   cell ReadValue(BitStream *bs);
-
-  bool ExecPublic(const PublicPtr &pub, int player_id, unsigned char event_id,
-                  BitStream *bs);
 
   void InitPublic(PR_EventType type, const std::string &public_name);
   void InitHandler(unsigned char event_id, const std::string &public_name,

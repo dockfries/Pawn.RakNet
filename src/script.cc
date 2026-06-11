@@ -459,10 +459,10 @@ bool Script::ExecPublic(const PublicPtr &pub, int player_id,
     bitstream_pool_.RemoveExternal(bs_handle);
   }
 
-  return result;
+  return result != 0;
 }
 
-cell Script::CallbackExec(const PublicPtr &pub, int player_id, BitStream *bs) {
+bool Script::CallbackExec(const PublicPtr &pub, int player_id, BitStream *bs) {
   if (!pub || !pub->Exists()) {
     return true;
   }
@@ -481,7 +481,7 @@ cell Script::CallbackExec(const PublicPtr &pub, int player_id, BitStream *bs) {
     bitstream_pool_.RemoveExternal(bs_handle);
   }
 
-  return result;
+  return result != 0;
 }
 
 void Script::InitPublic(PR_EventType type, const std::string &public_name) {
