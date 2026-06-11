@@ -25,145 +25,157 @@
 #ifndef PAWNRAKNET_SCRIPT_H_
 #define PAWNRAKNET_SCRIPT_H_
 
-using PublicPtr = std::shared_ptr<ptl::Public>;
-
-class Script : public ptl::AbstractScript<Script> {
+class Public {
  public:
-  const char *VarIsGamemode() { return "_pawnraknet_is_gamemode"; }
+  Public(const std::string &name, IPawnScript *script, bool use_caching = false);
 
-  const char *VarVersion() { return "_pawnraknet_version"; }
+  template <typename... Args>
+  inline cell Exec(Args... args) {
+    cell retval{};
 
-  // native PR_Init();
-  cell PR_Init();
+    if (use_caching_) {
+      if (!cached_) {
+        script_->FindPublic(name_.c_str(), &index_);
+        cached_ = true;
+      }
+    } else {
+      script_->FindPublic(name_.c_str(), &index_);
+    }
 
-  // native PR_RegHandler(eventid, const publicname[], PR_EventType:type);
-  cell PR_RegHandler(unsigned char event_id, std::string public_name,
-                     PR_EventType type);
+    if constexpr (sizeof...(Args) != 0) {
+      Push(args...);
+    }
 
-  // native PR_SendPacket(BitStream:bs, playerid, PR_PacketPriority:priority =
-  // PR_HIGH_PRIORITY, PR_PacketReliability:reliability = PR_RELIABLE_ORDERED,
-  // orderingchannel = 0);
-  cell PR_SendPacket(BitStream *bs, int player_id, PR_PacketPriority priority,
-                     PR_PacketReliability reliability,
-                     unsigned char ordering_channel);
+    script_->Exec(&retval, index_);
 
-  // native PR_SendRPC(BitStream:bs, playerid, rpcid, PR_PacketPriority:priority
-  // = PR_HIGH_PRIORITY, PR_PacketReliability:reliability =
-  // PR_RELIABLE_ORDERED, orderingchannel = 0);
-  cell PR_SendRPC(BitStream *bs, int player_id, RPCIndex rpc_id,
-                  PR_PacketPriority priority, PR_PacketReliability reliability,
-                  unsigned char ordering_channel);
+    if (amx_addr_to_release_) {
+      script_->Release(amx_addr_to_release_);
+      amx_addr_to_release_ = 0;
+    }
 
-  // native PR_EmulateIncomingPacket(BitStream:bs, playerid);
-  cell PR_EmulateIncomingPacket(BitStream *bs, int player_id);
+    return retval;
+  }
 
-  // native PR_EmulateIncomingRPC(BitStream:bs, playerid, rpcid);
-  cell PR_EmulateIncomingRPC(BitStream *bs, int player_id, RPCIndex rpc_id);
+  bool Exists() const { return exists_; }
 
-  // native BitStream:BS_New();
-  cell BS_New();
+ private:
+  template <typename T, typename... Args>
+  void Push(T arg1, Args... args) {
+    Push(args...);
+    Push(arg1);
+  }
 
-  // native BitStream:BS_NewCopy(BitStream:bs);
-  cell BS_NewCopy(BitStream *bs);
+  template <typename T>
+  void Push(T arg) {
+    if constexpr (std::is_pointer<T>::value) {
+      if constexpr (std::is_same<T, const char *>::value ||
+                    std::is_same<T, char *>::value) {
+        cell amx_addr{};
+        script_->PushString(&amx_addr, nullptr, arg, false, false);
+        if (!amx_addr_to_release_) {
+          amx_addr_to_release_ = amx_addr;
+        }
+      } else {
+        script_->Push(reinterpret_cast<cell>(arg));
+      }
+    } else if constexpr (std::is_floating_point<T>::value) {
+      script_->Push(amx_ftoc(arg));
+    } else if constexpr (std::is_same<typename std::decay<T>::type,
+                                      std::string>::value) {
+      Push(arg.c_str());
+    } else {
+      script_->Push(static_cast<cell>(arg));
+    }
+  }
 
-  // native BS_Delete(&BitStream:bs);
-  cell BS_Delete(cell *bs);
+  IPawnScript *script_;
+  std::string name_;
+  int index_{};
+  bool exists_{};
+  bool cached_{};
+  bool use_caching_{};
+  cell amx_addr_to_release_{};
+};
 
-  // native BS_Reset(BitStream:bs);
-  cell BS_Reset(BitStream *bs);
+using PublicPtr = std::shared_ptr<Public>;
 
-  // native BS_ResetReadPointer(BitStream:bs);
-  cell BS_ResetReadPointer(BitStream *bs);
+class Script {
+ public:
+  void Init(IPawnScript *pawn_script);
 
-  // native BS_ResetWritePointer(BitStream:bs);
-  cell BS_ResetWritePointer(BitStream *bs);
-
-  // native BS_IgnoreBits(BitStream:bs, number_of_bits);
-  cell BS_IgnoreBits(BitStream *bs, int number_of_bits);
-
-  // native BS_SetWriteOffset(BitStream:bs, offset);
-  cell BS_SetWriteOffset(BitStream *bs, int offset);
-
-  // native BS_GetWriteOffset(BitStream:bs, &offset);
-  cell BS_GetWriteOffset(BitStream *bs, cell *offset);
-
-  // native BS_SetReadOffset(BitStream:bs, offset);
-  cell BS_SetReadOffset(BitStream *bs, int offset);
-
-  // native BS_GetReadOffset(BitStream:bs, &offset);
-  cell BS_GetReadOffset(BitStream *bs, cell *offset);
-
-  // native BS_GetNumberOfBitsUsed(BitStream:bs, &number);
-  cell BS_GetNumberOfBitsUsed(BitStream *bs, cell *number);
-
-  // native BS_GetNumberOfBytesUsed(BitStream:bs, &number);
-  cell BS_GetNumberOfBytesUsed(BitStream *bs, cell *number);
-
-  // native BS_GetNumberOfUnreadBits(BitStream:bs, &number);
-  cell BS_GetNumberOfUnreadBits(BitStream *bs, cell *number);
-
-  // native BS_GetNumberOfBitsAllocated(BitStream:bs, &number);
-  cell BS_GetNumberOfBitsAllocated(BitStream *bs, cell *number);
-
-  // native BS_WriteValue(BitStream:bs, {PR_ValueType, Float, _}:...);
-  cell BS_WriteValue(cell *params);
-
-  // native BS_ReadValue(BitStream:bs, {PR_ValueType, Float, _}:...);
-  cell BS_ReadValue(cell *params);
+  AMX *GetAmx() const;
 
   bool OnLoad();
+
+  cell BS_New();
+  cell BS_NewCopy(BitStream *bs);
+  cell BS_Delete(cell *bs);
+  cell BS_WriteValue(cell *params);
+  cell BS_ReadValue(cell *params);
+
+  void PR_Init();
+  void PR_RegHandler(unsigned char event_id, const std::string &public_name,
+                     PR_EventType type);
+
+  BitStream *GetBitStream(cell handle);
+
+  cell CallbackExec(const PublicPtr &pub, int player_id, BitStream *bs);
 
   template <PR_EventType event_type>
   bool OnEvent(int player_id, unsigned char event_id, BitStream *bs) {
     if constexpr (event_type == PR_OUTGOING_PACKET) {
-      if (!ExecPublic(public_on_outcoming_packet_, player_id, event_id, bs)) {
+      if (!CallbackExec(public_on_outcoming_packet_, player_id, bs)) {
         return false;
       }
     } else if constexpr (event_type == PR_OUTGOING_RPC) {
-      if (!ExecPublic(public_on_outcoming_rpc_, player_id, event_id, bs)) {
+      if (!CallbackExec(public_on_outcoming_rpc_, player_id, bs)) {
         return false;
       }
     }
 
     if constexpr (event_type != PR_INCOMING_CUSTOM_RPC) {
-      if (!ExecPublic(std::get<event_type>(publics_), player_id, event_id,
-                      bs)) {
+      if (!CallbackExec(std::get<event_type>(publics_), player_id, bs)) {
         return false;
       }
     }
 
     for (const auto &handler : std::get<event_type>(handlers_).at(event_id)) {
       bs->resetReadPointer();
-
-      if (!handler->Exec(player_id, bs)) {
+      if (!CallbackExec(handler, player_id, bs)) {
         return false;
       }
     }
 
     bs->resetReadPointer();
-
     return true;
   }
 
-  bool ExecPublic(const PublicPtr &pub, int player_id, unsigned char event_id,
-                  BitStream *bs);
-
-  void InitPublic(PR_EventType type, const std::string &public_name);
-
-  void InitHandler(unsigned char event_id, const std::string &public_name,
-                   PR_EventType type);
-
-  void InitHandlers();
-
-  BitStream *GetBitStream(cell handle);
-
+ private:
   template <typename T, bool compressed = false>
   void WriteValue(BitStream *bs, cell value);
 
   template <typename T, bool compressed = false>
   cell ReadValue(BitStream *bs);
 
- private:
+  bool ExecPublic(const PublicPtr &pub, int player_id, unsigned char event_id,
+                  BitStream *bs);
+
+  void InitPublic(PR_EventType type, const std::string &public_name);
+  void InitHandler(unsigned char event_id, const std::string &public_name,
+                   PR_EventType type);
+  void InitHandlers();
+
+  cell *GetPhysAddr(cell amx_addr);
+  std::string GetString(cell amx_addr);
+  void SetString(cell *dest, const std::string &src, std::size_t size);
+  std::string GetPublicName(int index);
+  std::shared_ptr<Public> MakePublic(const std::string &name,
+                                     bool use_caching = false);
+
+  void AssertMinParams(std::size_t min_count, cell *params) const;
+
+  IPawnScript *pawn_script_{};
+
   const std::regex regex_reg_handler_public_name_{
       R"(^pr_r(?:ip|ir|op|or|irp|iip|oip|icr)_\w+$)"};
 
@@ -176,7 +188,6 @@ class Script : public ptl::AbstractScript<Script> {
              PR_NUMBER_OF_EVENT_TYPES>
       handlers_;
 
-  // backward compatibility
   PublicPtr public_on_outcoming_packet_;
   PublicPtr public_on_outcoming_rpc_;
 

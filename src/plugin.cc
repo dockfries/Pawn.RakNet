@@ -23,39 +23,149 @@
  */
 
 #include "main.h"
+#include <Server/Components/Pawn/Impl/pawn_natives.hpp>
+#include <Server/Components/Pawn/Impl/pawn_impl.hpp>
+
+// Declared in natives.cpp
+extern AMX_NATIVE_INFO manual_natives[];
+
+Plugin &Plugin::Instance() {
+  static Plugin instance;
+  return instance;
+}
+
+bool Plugin::Load(IPawnComponent *pawn_component, ICore *core) {
+  auto &plugin = Instance();
+
+  plugin.core_ = core;
+  plugin.pawn_component_ = pawn_component;
+
+  try {
+    core->logLn(LogLevel::Message, "[%s] plugin v%s loading...",
+                plugin.Name(), plugin.VersionAsString().c_str());
+
+    setAmxFunctions(pawn_component->getAmxFunctions());
+    setAmxLookups(core);
+
+    plugin.OnLoad();
+
+    return true;
+  } catch (const std::exception &e) {
+    core->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(), __func__,
+                e.what());
+  }
+
+  return false;
+}
+
+void Plugin::Unload() {
+  auto &plugin = Instance();
+
+  try {
+    plugin.OnUnload();
+  } catch (const std::exception &e) {
+    plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(), __func__,
+                        e.what());
+  }
+}
+
+void Plugin::AddScript(IPawnScript *pawn_script) {
+  auto &plugin = Instance();
+
+  try {
+    auto script = std::make_shared<Script>();
+
+    script->Init(pawn_script);
+
+    plugin.scripts_.push_back(script);
+
+    pawn_natives::AmxLoad(pawn_script->GetAMX());
+
+    int num_manual = 0;
+    while (manual_natives[num_manual].name != nullptr) num_manual++;
+    if (num_manual > 0) pawn_script->Register(manual_natives, num_manual);
+
+    if (!script->OnLoad()) {
+      plugin.scripts_.remove(script);
+      return;
+    }
+  } catch (const std::exception &e) {
+    plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(), __func__,
+                        e.what());
+  }
+}
+
+void Plugin::RemoveScript(AMX *amx) {
+  auto &plugin = Instance();
+
+  auto it = std::find_if(
+      plugin.scripts_.begin(), plugin.scripts_.end(),
+      [amx](auto &s) { return s->GetAmx() == amx; });
+
+  if (it != plugin.scripts_.end()) {
+    plugin.scripts_.erase(it);
+  }
+}
+
+void Plugin::ProcessTick() {
+  auto &plugin = Instance();
+
+  try {
+    plugin.OnProcessTick();
+  } catch (const std::exception &e) {
+    plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(), __func__,
+                        e.what());
+  }
+}
+
+Script &Plugin::GetScript(AMX *amx) {
+  auto &plugin = Instance();
+
+  auto it = std::find_if(
+      plugin.scripts_.begin(), plugin.scripts_.end(),
+      [amx](auto &s) { return s->GetAmx() == amx; });
+
+  if (it == plugin.scripts_.end()) {
+    throw std::runtime_error{"Script not found"};
+  }
+
+  return **it;
+}
+
+bool Plugin::EveryScript(
+    std::function<bool(const std::shared_ptr<Script> &)> func) {
+  auto &plugin = Instance();
+
+  for (const auto &script : plugin.scripts_) {
+    try {
+      if (!func(script)) {
+        return false;
+      }
+    } catch (const std::exception &e) {
+      plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(),
+                          __func__, e.what());
+    }
+  }
+
+  return true;
+}
+
+std::tuple<int, int, int> Plugin::VersionToTuple(int version) {
+  return std::make_tuple((version >> 16) & 0xFF, (version >> 8) & 0xFF,
+                         version & 0xFF);
+}
+
+std::string Plugin::VersionAsString() const {
+  auto [major, minor, patch] = VersionToTuple(Version());
+
+  return std::to_string(major) + "." + std::to_string(minor) + "." +
+         std::to_string(patch);
+}
 
 bool Plugin::OnLoad() {
   config_ = std::make_shared<Config>("components/pawnraknet.cfg");
 
   config_->Read();
-
-  InstallPreHooks();
-
-  RegisterNative<&Script::PR_Init>("PR_Init");
-  RegisterNative<&Script::PR_RegHandler>("PR_RegHandler");
-  RegisterNative<&Script::PR_SendPacket>("PR_SendPacket");
-  RegisterNative<&Script::PR_SendRPC>("PR_SendRPC");
-  RegisterNative<&Script::PR_EmulateIncomingPacket>("PR_EmulateIncomingPacket");
-  RegisterNative<&Script::PR_EmulateIncomingRPC>("PR_EmulateIncomingRPC");
-
-  RegisterNative<&Script::BS_New>("BS_New");
-  RegisterNative<&Script::BS_NewCopy>("BS_NewCopy");
-  RegisterNative<&Script::BS_Delete>("BS_Delete");
-  RegisterNative<&Script::BS_Reset>("BS_Reset");
-  RegisterNative<&Script::BS_ResetReadPointer>("BS_ResetReadPointer");
-  RegisterNative<&Script::BS_ResetWritePointer>("BS_ResetWritePointer");
-  RegisterNative<&Script::BS_IgnoreBits>("BS_IgnoreBits");
-  RegisterNative<&Script::BS_SetWriteOffset>("BS_SetWriteOffset");
-  RegisterNative<&Script::BS_GetWriteOffset>("BS_GetWriteOffset");
-  RegisterNative<&Script::BS_SetReadOffset>("BS_SetReadOffset");
-  RegisterNative<&Script::BS_GetReadOffset>("BS_GetReadOffset");
-  RegisterNative<&Script::BS_GetNumberOfBitsUsed>("BS_GetNumberOfBitsUsed");
-  RegisterNative<&Script::BS_GetNumberOfBytesUsed>("BS_GetNumberOfBytesUsed");
-  RegisterNative<&Script::BS_GetNumberOfUnreadBits>("BS_GetNumberOfUnreadBits");
-  RegisterNative<&Script::BS_GetNumberOfBitsAllocated>(
-      "BS_GetNumberOfBitsAllocated");
-  RegisterNative<&Script::BS_WriteValue, false>("BS_WriteValue");
-  RegisterNative<&Script::BS_ReadValue, false>("BS_ReadValue");
 
   Log("\n\n"
       "    | %s %s | open.mp | 2016 - %s"
@@ -80,8 +190,6 @@ bool Plugin::OnLoad() {
   return true;
 }
 
-bool Plugin::LogAmxErrors() { return config_->LogAmxErrors(); }
-
 void Plugin::OnUnload() {
   config_->Save();
 
@@ -90,19 +198,8 @@ void Plugin::OnUnload() {
 
 void Plugin::OnProcessTick() {}
 
-void Plugin::InstallPreHooks() {
-  hook_amx_cleanup_ = urmem::hook::make(
-      reinterpret_cast<urmem::address_t *>(
-          plugin_data_[PLUGIN_DATA_AMX_EXPORTS])[PLUGIN_AMX_EXPORT_Cleanup],
-      &Hooks::amx_Cleanup);
-}
-
 void Plugin::SetCustomRPC(RPCIndex rpc_id) { custom_rpc_[rpc_id] = true; }
 
 bool Plugin::IsCustomRPC(RPCIndex rpc_id) { return custom_rpc_[rpc_id]; }
-
-const std::shared_ptr<urmem::hook> &Plugin::GetHookAmxCleanup() {
-  return hook_amx_cleanup_;
-}
 
 const std::shared_ptr<Config> &Plugin::GetConfig() { return config_; }

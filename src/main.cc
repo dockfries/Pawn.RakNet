@@ -62,22 +62,19 @@ void PluginComponent::onInit(IComponentList *components) {
     network->getOutEventDispatcher().addEventHandler(this);
   }
 
-  plugin_data_[PLUGIN_DATA_LOGPRINTF] =
-      reinterpret_cast<void *>(&PluginLogprintf);
-  plugin_data_[PLUGIN_DATA_AMX_EXPORTS] =
-      const_cast<void **>(pawn_component_->getAmxFunctions().data());
-
-  Plugin::DoLoad(plugin_data_);
+  Plugin::Load(pawn_component_, core_);
 }
 
 void PluginComponent::onAmxLoad(IPawnScript &script) {
-  Plugin::DoAmxLoad(static_cast<AMX *>(script.GetAMX()));
+  Plugin::AddScript(&script);
 };
 
-void PluginComponent::onAmxUnload(IPawnScript &script){};
+void PluginComponent::onAmxUnload(IPawnScript &script) {
+  Plugin::RemoveScript(script.GetAMX());
+};
 
 void PluginComponent::onTick(Microseconds elapsed, TimePoint now) {
-  Plugin::DoProcessTick();
+  Plugin::ProcessTick();
 }
 
 bool PluginComponent::onReceivePacket(IPlayer &peer, int id,
@@ -108,11 +105,11 @@ bool PluginComponent::onSendRPC(IPlayer *peer, int id, NetworkBitStream &bs) {
 
 void PluginComponent::onFree(IComponent *component) {
   if (component == pawn_component_ || component == this) {
-    Plugin::DoUnload();
+    Plugin::Unload();
 
     if (pawn_component_) {
-        core_->getEventDispatcher().removeEventHandler(this);
-        pawn_component_->getEventDispatcher().removeEventHandler(this);
+      core_->getEventDispatcher().removeEventHandler(this);
+      pawn_component_->getEventDispatcher().removeEventHandler(this);
     }
 
     pawn_component_ = nullptr;
@@ -125,30 +122,13 @@ void PluginComponent::free() {
   delete this;
 }
 
-void PluginComponent::PluginLogprintf(const char *fmt, ...) {
-  auto core = getCore();
-  if (!core) {
-    return;
-  }
-
-  va_list args{};
-
-  va_start(args, fmt);
-
-  core->vprintLn(fmt, args);
-
-  va_end(args);
-}
-
 ICore *&PluginComponent::getCore() {
   static ICore *core{};
-
   return core;
 }
 
 PluginComponent *&PluginComponent::get() {
   static PluginComponent *component{};
-
   return component;
 }
 

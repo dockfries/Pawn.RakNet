@@ -991,9 +991,7 @@ inline void NetworkBitStream::WriteCompressed(double var)
     if (var > 1.0f)
         var = 1.0f;
 
-    assert(sizeof(unsigned long) == 4);
-
-    Write((unsigned long)((var + 1.0) * 2147483648.0));
+    Write(static_cast<uint32_t>((var + 1.0) * 2147483648.0));
 }
 
 /// Write any integral type to a bitstream.  If the current value is different from the last value
@@ -1120,7 +1118,7 @@ inline bool NetworkBitStream::ReadCompressed(float& var)
 template <>
 inline bool NetworkBitStream::ReadCompressed(double& var)
 {
-    unsigned long compressedFloat;
+    uint32_t compressedFloat;
     if (Read(compressedFloat)) {
         var = ((double)compressedFloat / 2147483648.0 - 1.0);
         return true;
@@ -1257,9 +1255,9 @@ void NetworkBitStream::WriteOrthMatrix(
         qy = 0.0;
     if (qz < 0.0)
         qz = 0.0;
-    qx = _copysign(qx, m21 - m12);
-    qy = _copysign(qy, m02 - m20);
-    qz = _copysign(qz, m10 - m01);
+    qx = std::copysign(qx, m21 - m12);
+    qy = std::copysign(qy, m02 - m20);
+    qz = std::copysign(qz, m10 - m01);
 
     WriteNormQuat(qw, qx, qy, qz);
 }

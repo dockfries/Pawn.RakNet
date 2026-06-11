@@ -25,17 +25,37 @@
 #ifndef PAWNRAKNET_BITSTREAM_POOL_H_
 #define PAWNRAKNET_BITSTREAM_POOL_H_
 
+#include <mutex>
+#include <queue>
+#include <unordered_map>
+
 class BitStreamPool {
  public:
-  BitStream *New();
+  cell New();
 
-  void Delete(BitStream *ptr);
+  BitStream *Get(cell handle);
+
+  void Delete(cell handle);
+
+  cell GetHandle(BitStream *ptr);
+
+  cell AddExternal(BitStream *ptr);
+
+  void RemoveExternal(cell handle);
 
  private:
+  BitStream *Alloc();
+
+  void Free(BitStream *ptr);
+
   using Item =
       std::pair<std::shared_ptr<BitStream> /* bs */, bool /* is_occupied */>;
 
+  cell next_handle_{};
+  std::unordered_map<cell, BitStream *> handles_;
+  std::queue<cell> free_handles_;
   std::vector<Item> items_;
+  std::mutex mutex_;
 };
 
 #endif  // PAWNRAKNET_BITSTREAM_POOL_H_

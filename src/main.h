@@ -30,10 +30,8 @@
 #include "sdk.hpp"
 #include "Server/Components/Pawn/pawn.hpp"
 #include "Impl/network_impl.hpp"
-#include "samp-ptl/ptl.h"
 #include "RakNet/bitstream.hpp"
 #include "RakNet/Encoding/str_compress.hpp"
-#include "urmem/urmem.hpp"
 #include "cpptoml/include/cpptoml.h"
 
 #include <unordered_set>
@@ -48,6 +46,11 @@
 #include <atomic>
 #include <vector>
 #include <cstdarg>
+
+#ifndef PACK_PLUGIN_VERSION
+#define PACK_PLUGIN_VERSION(major, minor, patch) \
+  (((major) << 16) | ((minor) << 8) | (patch))
+#endif
 
 #include "Pawn.RakNet.inc"
 
@@ -67,9 +70,8 @@ using RPCIndex = unsigned char;
 #include "config.h"
 #include "bitstream_pool.h"
 #include "script.h"
-#include "native_param.h"
 #include "plugin.h"
-#include "hooks.h"
+#include "native_params.hpp"
 
 class PluginComponent final : public IComponent,
                               public PawnEventHandler,
@@ -107,8 +109,6 @@ class PluginComponent final : public IComponent,
 
   void free() override;
 
-  static void PluginLogprintf(const char *fmt, ...);
-
   static ICore *&getCore();
 
   static PluginComponent *&get();
@@ -116,8 +116,6 @@ class PluginComponent final : public IComponent,
  private:
   ICore *core_{};
   IPawnComponent *pawn_component_{};
-
-  void *plugin_data_[MAX_PLUGIN_DATA]{};
 };
 
 #endif  // PAWNRAKNET_MAIN_H_

@@ -24,7 +24,7 @@
 
 #include "main.h"
 
-BitStream *BitStreamPool::New() {
+BitStream *BitStreamPool::Alloc() {
   for (auto &[bs, is_occupied] : items_) {
     if (!is_occupied) {
       is_occupied = true;
@@ -39,7 +39,7 @@ BitStream *BitStreamPool::New() {
   return bs.get();
 }
 
-void BitStreamPool::Delete(BitStream *ptr) {
+void BitStreamPool::Free(BitStream *ptr) {
   for (auto &[bs, is_occupied] : items_) {
     if (bs.get() == ptr) {
       bs->reset();
@@ -49,4 +49,82 @@ void BitStreamPool::Delete(BitStream *ptr) {
       return;
     }
   }
+}
+
+cell BitStreamPool::New() {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  auto ptr = Alloc();
+
+  cell handle;
+  if (!free_handles_.empty()) {
+    handle = free_handles_.front();
+    free_handles_.pop();
+  } else {
+    handle = ++next_handle_;
+  }
+
+  handles_[handle] = ptr;
+
+  return handle;
+}
+
+BitStream *BitStreamPool::Get(cell handle) {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  auto it = handles_.find(handle);
+  return it != handles_.end() ? it->second : nullptr;
+}
+
+void BitStreamPool::Delete(cell handle) {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  auto it = handles_.find(handle);
+  if (it == handles_.end()) {
+    return;
+  }
+
+  Free(it->second);
+  handles_.erase(it);
+  free_handles_.push(handle);
+}
+
+cell BitStreamPool::GetHandle(BitStream *ptr) {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  for (auto &[handle, bs_ptr] : handles_) {
+    if (bs_ptr == ptr) {
+      return handle;
+    }
+  }
+
+  return 0;
+}
+
+cell BitStreamPool::AddExternal(BitStream *ptr) {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  cell handle;
+  if (!free_handles_.empty()) {
+    handle = free_handles_.front();
+    free_handles_.pop();
+  } else {
+    handle = ++next_handle_;
+  }
+
+  handles_[handle] = ptr;
+
+  return handle;
+}
+
+void BitStreamPool::RemoveExternal(cell handle) {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  auto it = handles_.find(handle);
+  if (it == handles_.end()) {
+    return;
+  }
+
+  handles_.erase(it);
+  free_handles_.push(handle);
 }

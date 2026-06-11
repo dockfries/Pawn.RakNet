@@ -25,27 +25,39 @@
 #ifndef PAWNRAKNET_PLUGIN_H_
 #define PAWNRAKNET_PLUGIN_H_
 
-class Plugin : public ptl::AbstractPlugin<Plugin, Script, NativeParam> {
+class Plugin {
  public:
-  const char *Name() { return "Pawn.RakNet"; }
+  static Plugin &Instance();
+  static Plugin &Get() { return Instance(); }
 
-  int Version() { return PAWNRAKNET_VERSION; }
+  static bool Load(IPawnComponent *pawn_component, ICore *core);
+  static void Unload();
+  static void AddScript(IPawnScript *pawn_script);
+  static void RemoveScript(AMX *amx);
+  static void ProcessTick();
+
+  static bool EveryScript(
+      std::function<bool(const std::shared_ptr<Script> &)> func);
+
+  static Script &GetScript(AMX *amx);
+
+  static std::tuple<int, int, int> VersionToTuple(int version);
+
+  template <typename... Args>
+  static void Log(const std::string &fmt, Args... args) {
+    Instance().LogImpl(fmt, args...);
+  }
+
+  const char *Name() { return "Pawn.RakNet"; }
+  int Version() const { return PAWNRAKNET_VERSION; }
+  std::string VersionAsString() const;
 
   bool OnLoad();
-
-  bool LogAmxErrors();
-
+  bool LogAmxErrors() { return config_ && config_->LogAmxErrors(); }
   void OnUnload();
-
   void OnProcessTick();
-
-  void InstallPreHooks();
-
   void SetCustomRPC(RPCIndex rpc_id);
-
   bool IsCustomRPC(RPCIndex rpc_id);
-
-  const std::shared_ptr<urmem::hook> &GetHookAmxCleanup();
 
   const std::shared_ptr<Config> &GetConfig();
 
@@ -56,14 +68,25 @@ class Plugin : public ptl::AbstractPlugin<Plugin, Script, NativeParam> {
     });
   }
 
-  static Plugin &Get() { return Instance(); }
+  template <typename... Args>
+  void LogImpl(const std::string &fmt, Args... args) {
+    if (core_) {
+      core_->logLn(LogLevel::Message, ("[%s] " + fmt).c_str(), Name(), args...);
+    }
+  }
 
  private:
+  Plugin() = default;
+  Plugin(const Plugin &) = delete;
+  Plugin &operator=(const Plugin &) = delete;
+
+  ICore *core_{};
+  IPawnComponent *pawn_component_{};
+
   std::shared_ptr<Config> config_;
-
-  std::shared_ptr<urmem::hook> hook_amx_cleanup_;
-
   std::array<bool, PR_MAX_HANDLERS> custom_rpc_{};
+
+  std::list<std::shared_ptr<Script>> scripts_;
 };
 
 #endif  // PAWNRAKNET_PLUGIN_H_

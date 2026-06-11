@@ -34,6 +34,8 @@ Release/
 Debug/
 bin/
 build/
+build32/
+build64/
 
 # Visual Studio user-specific files
 *.vcxproj.user

@@ -24,197 +24,71 @@
 
 #include "main.h"
 
-// native PR_Init();
-cell Script::PR_Init() {
-  InitHandlers();
-
-  return 1;
+Public::Public(const std::string &name, IPawnScript *script, bool use_caching)
+    : script_{script},
+      name_{name},
+      use_caching_{use_caching} {
+  exists_ = script_->FindPublic(name_.c_str(), &index_) == AMX_ERR_NONE &&
+            index_ >= 0;
 }
 
-// native PR_RegHandler(eventid, const publicname[], PR_EventType:type);
-cell Script::PR_RegHandler(unsigned char event_id, std::string public_name,
-                           PR_EventType type) {
-  InitHandler(event_id, public_name, type);
-
-  return 1;
+void Script::Init(IPawnScript *pawn_script) {
+  pawn_script_ = pawn_script;
 }
 
-// native PR_SendPacket(BitStream:bs, playerid, PR_PacketPriority:priority =
-// PR_HIGH_PRIORITY, PR_PacketReliability:reliability = PR_RELIABLE_ORDERED,
-// orderingchannel = 0);
-cell Script::PR_SendPacket(BitStream *bs, int player_id,
-                           PR_PacketPriority priority,
-                           PR_PacketReliability reliability,
-                           unsigned char ordering_channel) {
-  const bool broadcast = player_id == -1;
-
-  auto core = PluginComponent::getCore();
-  if (!core) {
-    throw std::runtime_error{"Invalid component core"};
-  }
-
-  if (broadcast) {
-    core->getPlayers().broadcastPacket(
-        Span<uint8_t>(bs->GetData(), bs->GetNumberOfBitsUsed()),
-        ordering_channel, nullptr, false);
-  } else {
-    auto player = core->getPlayers().get(player_id);
-    if (!player) {
-      throw std::runtime_error{"Invalid player"};
-    }
-
-    if (!player->sendPacket(
-            Span<uint8_t>(bs->GetData(), bs->GetNumberOfBitsUsed()),
-            ordering_channel, false)) {
-      return 0;
-    }
-  }
-
-  return 1;
+AMX *Script::GetAmx() const {
+  return pawn_script_->GetAMX();
 }
 
-// native PR_SendRPC(BitStream:bs, playerid, rpcid, PR_PacketPriority:priority
-// = PR_HIGH_PRIORITY, PR_PacketReliability:reliability =
-// PR_RELIABLE_ORDERED, orderingchannel = 0);
-cell Script::PR_SendRPC(BitStream *bs, int player_id, RPCIndex rpc_id,
-                        PR_PacketPriority priority,
-                        PR_PacketReliability reliability,
-                        unsigned char ordering_channel) {
-  const bool broadcast = player_id == -1;
-
-  auto core = PluginComponent::getCore();
-  if (!core) {
-    throw std::runtime_error{"Invalid component core"};
-  }
-
-  if (broadcast) {
-    core->getPlayers().broadcastRPC(
-        rpc_id, Span<uint8_t>(bs->GetData(), bs->GetNumberOfBitsUsed()),
-        ordering_channel, nullptr, false);
-  } else {
-    auto player = core->getPlayers().get(player_id);
-    if (!player) {
-      throw std::runtime_error{"Invalid player"};
-    }
-
-    if (!player->sendRPC(
-            rpc_id, Span<uint8_t>(bs->GetData(), bs->GetNumberOfBitsUsed()),
-            ordering_channel, false)) {
-      return 0;
-    }
-  }
-
-  return 1;
+cell *Script::GetPhysAddr(cell amx_addr) {
+  cell *phys_addr{};
+  pawn_script_->GetAddr(amx_addr, &phys_addr);
+  return phys_addr;
 }
 
-// native PR_EmulateIncomingPacket(BitStream:bs, playerid);
-cell Script::PR_EmulateIncomingPacket(BitStream *bs, int player_id) {
-  auto core = PluginComponent::getCore();
-  if (!core) {
-    throw std::runtime_error{"Invalid component core"};
-  }
+std::string Script::GetString(cell amx_addr) {
+  cell *addr = GetPhysAddr(amx_addr);
 
-  auto player = core->getPlayers().get(player_id);
-  if (!player) {
-    throw std::runtime_error{"Invalid player"};
-  }
+  int len{};
+  pawn_script_->StrLen(addr, &len);
 
-  auto data = bs->GetData();
-  if (!data) {
-    throw std::runtime_error{"Invalid bs data"};
-  }
+  std::unique_ptr<char[]> str{new char[len + 1]{}};
+  pawn_script_->GetString(str.get(), addr, false, len + 1);
 
-  int packet_id = static_cast<int>(data[0]);
-
-  for (auto network : core->getNetworks()) {
-    auto event_dispatcher =
-        reinterpret_cast<Impl::DefaultEventDispatcher<NetworkInEventHandler> *>(
-            &network->getInEventDispatcher());
-
-    if (!event_dispatcher->stopAtFalse(
-            [player, bs, packet_id](NetworkInEventHandler *handler) {
-              if (handler == PluginComponent::get()) {
-                return true;
-              }
-
-              bs->SetReadOffset(8);
-
-              return handler->onReceivePacket(*player, packet_id, *bs);
-            })) {
-      return 1;
-    }
-
-    auto event_single_dispatcher = reinterpret_cast<
-        Impl::DefaultIndexedEventDispatcher<SingleNetworkInEventHandler> *>(
-        &network->getPerPacketInEventDispatcher());
-
-    if (!event_single_dispatcher->stopAtFalse(
-            packet_id, [player, bs](SingleNetworkInEventHandler *handler) {
-              bs->SetReadOffset(8);
-
-              return handler->onReceive(*player, *bs);
-            })) {
-      return 1;
-    }
-  }
-
-  return 1;
+  return str.get();
 }
 
-// native PR_EmulateIncomingRPC(BitStream:bs, playerid, rpcid);
-cell Script::PR_EmulateIncomingRPC(BitStream *bs, int player_id,
-                                   RPCIndex rpc_id) {
-  auto core = PluginComponent::getCore();
-  if (!core) {
-    throw std::runtime_error{"Invalid component core"};
-  }
-
-  auto player = core->getPlayers().get(player_id);
-  if (!player) {
-    throw std::runtime_error{"Invalid player"};
-  }
-
-  for (auto network : core->getNetworks()) {
-    auto event_dispatcher =
-        reinterpret_cast<Impl::DefaultEventDispatcher<NetworkInEventHandler> *>(
-            &network->getInEventDispatcher());
-
-    if (!event_dispatcher->stopAtFalse(
-            [player, bs, rpc_id](NetworkInEventHandler *handler) {
-              if (handler == PluginComponent::get()) {
-                return true;
-              }
-
-              bs->resetReadPointer();
-
-              return handler->onReceiveRPC(*player, rpc_id, *bs);
-            })) {
-      return 1;
-    }
-
-    auto event_single_dispatcher = reinterpret_cast<
-        Impl::DefaultIndexedEventDispatcher<SingleNetworkInEventHandler> *>(
-        &network->getPerRPCInEventDispatcher());
-
-    if (!event_single_dispatcher->stopAtFalse(
-            rpc_id, [player, bs](SingleNetworkInEventHandler *handler) {
-              bs->resetReadPointer();
-
-              return handler->onReceive(*player, *bs);
-            })) {
-      return 1;
-    }
-  }
-
-  return 1;
+void Script::SetString(cell *dest, const std::string &src, std::size_t size) {
+  pawn_script_->SetString(dest, src, false, false, size);
 }
 
-// native BitStream:BS_New();
-cell Script::BS_New() { return reinterpret_cast<cell>(bitstream_pool_.New()); }
+std::string Script::GetPublicName(int index) {
+  int len{};
+  pawn_script_->NameLength(&len);
 
-// native BitStream:BS_NewCopy(BitStream:bs);
+  std::unique_ptr<char[]> name{new char[len + 1]{}};
+  pawn_script_->GetPublic(index, name.get());
+
+  return name.get();
+}
+
+std::shared_ptr<Public> Script::MakePublic(const std::string &name,
+                                           bool use_caching) {
+  return std::make_shared<Public>(name, pawn_script_, use_caching);
+}
+
+void Script::AssertMinParams(std::size_t min_count, cell *params) const {
+  if (static_cast<ucell>(params[0]) < (min_count * sizeof(cell))) {
+    throw std::runtime_error{"Number of parameters must be >= " +
+                             std::to_string(min_count)};
+  }
+}
+
+cell Script::BS_New() { return bitstream_pool_.New(); }
+
 cell Script::BS_NewCopy(BitStream *bs) {
-  const auto bs_copy = bitstream_pool_.New();
+  const auto bs_handle = bitstream_pool_.New();
+  const auto bs_copy = bitstream_pool_.Get(bs_handle);
 
   int original_read_offset = bs->GetReadOffset();
 
@@ -224,103 +98,26 @@ cell Script::BS_NewCopy(BitStream *bs) {
 
   bs->SetReadOffset(original_read_offset);
 
-  return reinterpret_cast<cell>(bs_copy);
+  return bs_handle;
 }
 
-// native BS_Delete(&BitStream:bs);
 cell Script::BS_Delete(cell *bs) {
-  bitstream_pool_.Delete(GetBitStream(*bs));
-
+  bitstream_pool_.Delete(*bs);
   *bs = 0;
 
   return 1;
 }
 
-// native BS_Reset(BitStream:bs);
-cell Script::BS_Reset(BitStream *bs) {
-  bs->reset();
-
-  return 1;
+void Script::PR_Init() {
+  InitHandlers();
 }
 
-// native BS_ResetReadPointer(BitStream:bs);
-cell Script::BS_ResetReadPointer(BitStream *bs) {
-  bs->resetReadPointer();
-
-  return 1;
+void Script::PR_RegHandler(unsigned char event_id,
+                           const std::string &public_name, PR_EventType type) {
+  InitHandler(event_id, public_name, type);
 }
 
-// native BS_ResetWritePointer(BitStream:bs);
-cell Script::BS_ResetWritePointer(BitStream *bs) {
-  bs->resetWritePointer();
-
-  return 1;
-}
-
-// native BS_IgnoreBits(BitStream:bs, number_of_bits);
-cell Script::BS_IgnoreBits(BitStream *bs, int number_of_bits) {
-  bs->IgnoreBits(number_of_bits);
-
-  return 1;
-}
-
-// native BS_SetWriteOffset(BitStream:bs, offset);
-cell Script::BS_SetWriteOffset(BitStream *bs, int offset) {
-  bs->SetWriteOffset(offset);
-
-  return 1;
-}
-
-// native BS_GetWriteOffset(BitStream:bs, &offset);
-cell Script::BS_GetWriteOffset(BitStream *bs, cell *offset) {
-  *offset = bs->GetWriteOffset();
-
-  return 1;
-}
-
-// native BS_SetReadOffset(BitStream:bs, offset);
-cell Script::BS_SetReadOffset(BitStream *bs, int offset) {
-  bs->SetReadOffset(offset);
-
-  return 1;
-}
-
-// native BS_GetReadOffset(BitStream:bs, &offset);
-cell Script::BS_GetReadOffset(BitStream *bs, cell *offset) {
-  *offset = bs->GetReadOffset();
-
-  return 1;
-}
-
-// native BS_GetNumberOfBitsUsed(BitStream:bs, &number);
-cell Script::BS_GetNumberOfBitsUsed(BitStream *bs, cell *number) {
-  *number = bs->GetNumberOfBitsUsed();
-
-  return 1;
-}
-
-// native BS_GetNumberOfBytesUsed(BitStream:bs, &number);
-cell Script::BS_GetNumberOfBytesUsed(BitStream *bs, cell *number) {
-  *number = bs->GetNumberOfBytesUsed();
-
-  return 1;
-}
-
-// native BS_GetNumberOfUnreadBits(BitStream:bs, &number);
-cell Script::BS_GetNumberOfUnreadBits(BitStream *bs, cell *number) {
-  *number = bs->GetNumberOfUnreadBits();
-
-  return 1;
-}
-
-// native BS_GetNumberOfBitsAllocated(BitStream:bs, &number);
-cell Script::BS_GetNumberOfBitsAllocated(BitStream *bs, cell *number) {
-  *number = bs->GetNumberOfBitsAllocated();
-
-  return 1;
-}
-
-// native BS_WriteValue(BitStream:bs, {PR_ValueType, Float, _}:...);
+// BS_WriteValue and BS_ReadValue remain here because they're too complex to inline.
 cell Script::BS_WriteValue(cell *params) {
   AssertMinParams(3, params);
 
@@ -336,9 +133,9 @@ cell Script::BS_WriteValue(cell *params) {
         auto str = GetString(params[i + 2]);
 
         if (type == PR_STRING) {
-          bs->Write(str.c_str(), str.size());
+          bs->Write(str.c_str(), static_cast<int>(str.size()));
         } else {
-          stringCompressor->EncodeString(str.c_str(), str.size() + 1, bs);
+          stringCompressor->EncodeString(str.c_str(), static_cast<int>(str.size() + 1), bs);
         }
 
         break;
@@ -432,12 +229,12 @@ cell Script::BS_WriteValue(cell *params) {
         auto str = GetString(params[i + 2]);
 
         if (type == PR_STRING8) {
-          WriteValue<unsigned char>(bs, str.size());
+          WriteValue<unsigned char>(bs, static_cast<cell>(str.size()));
         } else {
-          WriteValue<unsigned int>(bs, str.size());
+          WriteValue<unsigned int>(bs, static_cast<cell>(str.size()));
         }
 
-        bs->Write(str.c_str(), str.size());
+        bs->Write(str.c_str(), static_cast<int>(str.size()));
 
         break;
       }
@@ -454,7 +251,6 @@ cell Script::BS_WriteValue(cell *params) {
   return 1;
 }
 
-// native BS_ReadValue(BitStream:bs, {PR_ValueType, Float, _}:...);
 cell Script::BS_ReadValue(cell *params) {
   AssertMinParams(3, params);
 
@@ -581,9 +377,9 @@ cell Script::BS_ReadValue(cell *params) {
 
         if (size > 0) {
           if (size > max_size) {
-            Log("%s: Warning! size (%d) > max_size (%d) "
-                "(PR_STRING8/PR_STRING32)",
-                __FUNCTION__, size, max_size);
+            Plugin::Log("%s: Warning! size (%d) > max_size (%d) "
+                        "(PR_STRING8/PR_STRING32)",
+                        __FUNCTION__, size, max_size);
 
             size = max_size;
           }
@@ -616,7 +412,7 @@ bool Script::OnLoad() {
   config_ = Plugin::Get().GetConfig();
 
   int num_publics{};
-  amx_->NumPublics(&num_publics);
+  pawn_script_->NumPublics(&num_publics);
 
   for (int index{}; index < num_publics; index++) {
     std::string public_name = GetPublicName(index);
@@ -632,7 +428,6 @@ bool Script::OnLoad() {
       InitPublic(PR_OUTGOING_RPC, public_name);
     }
 
-    // backward compatibility
     if (public_name == "OnOutcomingPacket") {
       public_on_outcoming_packet_ =
           MakePublic(public_name, config_->UseCaching());
@@ -652,15 +447,49 @@ bool Script::ExecPublic(const PublicPtr &pub, int player_id,
 
   bs->resetReadPointer();
 
-  return pub->Exec(player_id, static_cast<cell>(event_id), bs);
+  cell bs_handle = bitstream_pool_.GetHandle(bs);
+  bool is_external = (bs_handle == 0);
+  if (is_external) {
+    bs_handle = bitstream_pool_.AddExternal(bs);
+  }
+
+  cell result = pub->Exec(player_id, static_cast<cell>(event_id), bs_handle);
+
+  if (is_external) {
+    bitstream_pool_.RemoveExternal(bs_handle);
+  }
+
+  return result;
+}
+
+cell Script::CallbackExec(const PublicPtr &pub, int player_id, BitStream *bs) {
+  if (!pub || !pub->Exists()) {
+    return true;
+  }
+
+  bs->resetReadPointer();
+
+  cell bs_handle = bitstream_pool_.GetHandle(bs);
+  bool is_external = (bs_handle == 0);
+  if (is_external) {
+    bs_handle = bitstream_pool_.AddExternal(bs);
+  }
+
+  cell result = pub->Exec(player_id, bs_handle);
+
+  if (is_external) {
+    bitstream_pool_.RemoveExternal(bs_handle);
+  }
+
+  return result;
 }
 
 void Script::InitPublic(PR_EventType type, const std::string &public_name) {
   publics_.at(type) = MakePublic(public_name, config_->UseCaching());
 }
 
-void Script::InitHandler(unsigned char event_id, const std::string &public_name,
-                         PR_EventType type) {
+void Script::InitHandler(unsigned char event_id,
+                         const std::string &public_name, PR_EventType type) {
   auto &plugin = Plugin::Get();
 
   auto pub = MakePublic(public_name, config_->UseCaching());
@@ -684,12 +513,17 @@ void Script::InitHandlers() {
 }
 
 BitStream *Script::GetBitStream(cell handle) {
-  const auto bs = reinterpret_cast<BitStream *>(handle);
-  if (!bs) {
-    throw std::runtime_error{"Invalid BitStream handle"};
+  auto bs = bitstream_pool_.Get(handle);
+  if (bs) {
+    return bs;
   }
 
-  return bs;
+  bs = reinterpret_cast<BitStream *>(static_cast<uintptr_t>(handle));
+  if (bs) {
+    return bs;
+  }
+
+  throw std::runtime_error{"Invalid BitStream handle"};
 }
 
 template <typename T, bool compressed>
@@ -725,3 +559,37 @@ cell Script::ReadValue(BitStream *bs) {
 
   return static_cast<cell>(value);
 }
+
+template void Script::WriteValue<char, false>(BitStream *, cell);
+template void Script::WriteValue<short, false>(BitStream *, cell);
+template void Script::WriteValue<int, false>(BitStream *, cell);
+template void Script::WriteValue<unsigned char, false>(BitStream *, cell);
+template void Script::WriteValue<unsigned short, false>(BitStream *, cell);
+template void Script::WriteValue<unsigned int, false>(BitStream *, cell);
+template void Script::WriteValue<float, false>(BitStream *, cell);
+template void Script::WriteValue<bool, false>(BitStream *, cell);
+template void Script::WriteValue<char, true>(BitStream *, cell);
+template void Script::WriteValue<short, true>(BitStream *, cell);
+template void Script::WriteValue<int, true>(BitStream *, cell);
+template void Script::WriteValue<unsigned char, true>(BitStream *, cell);
+template void Script::WriteValue<unsigned short, true>(BitStream *, cell);
+template void Script::WriteValue<unsigned int, true>(BitStream *, cell);
+template void Script::WriteValue<float, true>(BitStream *, cell);
+template void Script::WriteValue<bool, true>(BitStream *, cell);
+
+template cell Script::ReadValue<char, false>(BitStream *);
+template cell Script::ReadValue<short, false>(BitStream *);
+template cell Script::ReadValue<int, false>(BitStream *);
+template cell Script::ReadValue<unsigned char, false>(BitStream *);
+template cell Script::ReadValue<unsigned short, false>(BitStream *);
+template cell Script::ReadValue<unsigned int, false>(BitStream *);
+template cell Script::ReadValue<float, false>(BitStream *);
+template cell Script::ReadValue<bool, false>(BitStream *);
+template cell Script::ReadValue<char, true>(BitStream *);
+template cell Script::ReadValue<short, true>(BitStream *);
+template cell Script::ReadValue<int, true>(BitStream *);
+template cell Script::ReadValue<unsigned char, true>(BitStream *);
+template cell Script::ReadValue<unsigned short, true>(BitStream *);
+template cell Script::ReadValue<unsigned int, true>(BitStream *);
+template cell Script::ReadValue<float, true>(BitStream *);
+template cell Script::ReadValue<bool, true>(BitStream *);
