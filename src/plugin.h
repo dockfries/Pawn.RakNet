@@ -33,13 +33,8 @@ class Plugin {
   static bool Load(IPawnComponent *pawn_component, ICore *core);
   static void Unload();
   static void AddScript(IPawnScript *pawn_script);
-  static void RemoveScript(AMX *amx);
+  static void RemoveScript(IPawnScript *pawn_script);
   static void ProcessTick();
-
-  static bool EveryScript(
-      std::function<bool(const std::shared_ptr<Script> &)> func);
-
-  static Script &GetScript(AMX *amx);
 
   static std::tuple<int, int, int> VersionToTuple(int version);
 
@@ -56,22 +51,26 @@ class Plugin {
   bool LogAmxErrors() { return config_ && config_->LogAmxErrors(); }
   void OnUnload();
   void OnProcessTick();
+
   void SetCustomRPC(RPCIndex rpc_id);
   bool IsCustomRPC(RPCIndex rpc_id);
 
   const std::shared_ptr<Config> &GetConfig();
 
+  BitStreamPool &GetPool() { return pool_; }
+
+  ScriptData &GetScriptData(AMX *amx);
+
   template <PR_EventType event_type>
   static bool OnEvent(int player_id, unsigned char event_id, BitStream *bs) {
-    return EveryScript([=](const std::shared_ptr<Script> &script) {
-      return script->OnEvent<event_type>(player_id, event_id, bs);
-    });
+    return Instance().OnEventImpl<event_type>(player_id, event_id, bs);
   }
 
   template <typename... Args>
   void LogImpl(const std::string &fmt, Args... args) {
     if (core_) {
-      core_->logLn(LogLevel::Message, ("[%s] " + fmt).c_str(), Name(), args...);
+      core_->logLn(LogLevel::Message, ("[%s] " + fmt).c_str(), Name(),
+                   args...);
     }
   }
 
@@ -80,13 +79,29 @@ class Plugin {
   Plugin(const Plugin &) = delete;
   Plugin &operator=(const Plugin &) = delete;
 
+  template <PR_EventType event_type>
+  bool OnEventImpl(int player_id, unsigned char event_id, BitStream *bs) {
+    for (auto *script : script_list_) {
+      auto it = scripts_data_.find(script->GetAMX());
+      if (it != scripts_data_.end()) {
+        if (!it->second.OnEvent<event_type>(player_id, event_id, bs)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   ICore *core_{};
   IPawnComponent *pawn_component_{};
 
   std::shared_ptr<Config> config_;
   std::array<bool, PR_MAX_HANDLERS> custom_rpc_{};
 
-  std::list<std::shared_ptr<Script>> scripts_;
+  BitStreamPool pool_;
+
+  std::unordered_map<AMX *, ScriptData> scripts_data_;
+  std::vector<IPawnScript *> script_list_;
 };
 
 #endif  // PAWNRAKNET_PLUGIN_H_

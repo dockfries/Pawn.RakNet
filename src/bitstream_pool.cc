@@ -25,36 +25,39 @@
 #include "main.h"
 
 BitStream *BitStreamPool::Alloc() {
-  for (auto &[bs, is_occupied] : items_) {
-    if (!is_occupied) {
-      is_occupied = true;
-
-      return bs.get();
+  for (auto &item : items_) {
+    if (!item.is_occupied) {
+      item.is_occupied = true;
+      return item.bs.get();
     }
   }
 
-  const auto &[bs, is_occupied] =
-      items_.emplace_back(std::make_shared<BitStream>(), true);
-
-  return bs.get();
+  items_.push_back({std::make_shared<BitStream>(), true, nullptr});
+  return items_.back().bs.get();
 }
 
 void BitStreamPool::Free(BitStream *ptr) {
-  for (auto &[bs, is_occupied] : items_) {
-    if (bs.get() == ptr) {
-      bs->reset();
-
-      is_occupied = false;
-
+  for (auto &item : items_) {
+    if (item.bs.get() == ptr) {
+      item.bs->reset();
+      item.is_occupied = false;
+      item.owner = nullptr;
       return;
     }
   }
 }
 
-cell BitStreamPool::New() {
+cell BitStreamPool::New(AMX *owner) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   auto ptr = Alloc();
+
+  for (auto &item : items_) {
+    if (item.bs.get() == ptr) {
+      item.owner = owner;
+      break;
+    }
+  }
 
   cell handle;
   if (!free_handles_.empty()) {
@@ -127,4 +130,33 @@ void BitStreamPool::RemoveExternal(cell handle) {
 
   handles_.erase(it);
   free_handles_.push(handle);
+}
+
+void BitStreamPool::FreeByOwner(AMX *owner) {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  for (auto &item : items_) {
+    if (item.is_occupied && item.owner == owner) {
+      item.bs->reset();
+      item.is_occupied = false;
+      item.owner = nullptr;
+    }
+  }
+
+  for (auto it = handles_.begin(); it != handles_.end();) {
+    auto ptr = it->second;
+    bool found = false;
+    for (auto &item : items_) {
+      if (item.bs.get() == ptr && !item.is_occupied) {
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      free_handles_.push(it->first);
+      it = handles_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }

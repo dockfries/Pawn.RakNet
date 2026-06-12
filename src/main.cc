@@ -70,7 +70,7 @@ void PluginComponent::onAmxLoad(IPawnScript &script) {
 };
 
 void PluginComponent::onAmxUnload(IPawnScript &script) {
-  Plugin::RemoveScript(script.GetAMX());
+  Plugin::RemoveScript(&script);
 };
 
 void PluginComponent::onTick(Microseconds elapsed, TimePoint now) {

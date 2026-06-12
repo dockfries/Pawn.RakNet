@@ -31,7 +31,7 @@
 
 class BitStreamPool {
  public:
-  cell New();
+  cell New(AMX *owner = nullptr);
 
   BitStream *Get(cell handle);
 
@@ -43,13 +43,18 @@ class BitStreamPool {
 
   void RemoveExternal(cell handle);
 
+  void FreeByOwner(AMX *owner);
+
  private:
   BitStream *Alloc();
 
   void Free(BitStream *ptr);
 
-  using Item =
-      std::pair<std::shared_ptr<BitStream> /* bs */, bool /* is_occupied */>;
+  struct Item {
+    std::shared_ptr<BitStream> bs;
+    bool is_occupied;
+    AMX *owner;
+  };
 
   cell next_handle_{};
   std::unordered_map<cell, BitStream *> handles_;

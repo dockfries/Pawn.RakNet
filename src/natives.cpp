@@ -25,17 +25,18 @@
 #include "main.h"
 #include <Server/Components/Pawn/Impl/pawn_natives.hpp>
 
-// native PR_Init();
+static auto &GetPool() { return Plugin::Instance().GetPool(); }
+
+// native PR_Init();  (no longer needed, kept for backward compatibility)
 SCRIPT_API(PR_Init, int())
 {
-  Plugin::GetScript(GetAMX()).PR_Init();
   return 1;
 }
 
 // native PR_RegHandler(eventid, const publicname[], PR_EventType:type);
 SCRIPT_API(PR_RegHandler, int(int event_id, std::string const& public_name, int type))
 {
-  Plugin::GetScript(GetAMX()).PR_RegHandler(
+  Plugin::Instance().GetScriptData(GetAMX()).InitHandler(
       static_cast<unsigned char>(event_id), public_name,
       static_cast<PR_EventType>(type));
   return 1;
@@ -175,20 +176,28 @@ SCRIPT_API(PR_EmulateIncomingRPC, int(BitStream& bs, int player_id, int rpc_id))
 // native BitStream:BS_New();
 SCRIPT_API(BS_New, int())
 {
-  return Plugin::GetScript(GetAMX()).BS_New();
+  return GetPool().New(GetAMX());
 }
 
 // native BitStream:BS_NewCopy(BitStream:bs);
 SCRIPT_API(BS_NewCopy, int(BitStream& bs))
 {
-  return Plugin::GetScript(GetAMX()).BS_NewCopy(&bs);
+  auto handle = GetPool().New(GetAMX());
+  auto *copy = GetPool().Get(handle);
+
+  int original_read_offset = bs.GetReadOffset();
+  bs.resetReadPointer();
+  copy->Write(&bs);
+  bs.SetReadOffset(original_read_offset);
+
+  return handle;
 }
 
 // native BS_Delete(&BitStream:bs);
 SCRIPT_API(BS_Delete, int(cell& bs))
 {
   auto handle = static_cast<cell>(bs);
-  Plugin::GetScript(GetAMX()).BS_Delete(&handle);
+  GetPool().Delete(handle);
   bs = 0;
   return 1;
 }
@@ -282,8 +291,8 @@ static cell AMX_NATIVE_CALL BS_WriteValueNative(AMX* amx, cell* params)
 {
   try
   {
-    auto& script = Plugin::GetScript(amx);
-    return script.BS_WriteValue(params);
+    auto& data = Plugin::Instance().GetScriptData(amx);
+    return data.BS_WriteValue(params);
   }
   catch (const std::exception& e)
   {
@@ -296,8 +305,8 @@ static cell AMX_NATIVE_CALL BS_ReadValueNative(AMX* amx, cell* params)
 {
   try
   {
-    auto& script = Plugin::GetScript(amx);
-    return script.BS_ReadValue(params);
+    auto& data = Plugin::Instance().GetScriptData(amx);
+    return data.BS_ReadValue(params);
   }
   catch (const std::exception& e)
   {

@@ -22,12 +22,12 @@
  * SOFTWARE.
  */
 
-#ifndef PAWNRAKNET_SCRIPT_H_
-#define PAWNRAKNET_SCRIPT_H_
+#ifndef PAWNRAKNET_SCRIPT_DATA_H_
+#define PAWNRAKNET_SCRIPT_DATA_H_
 
 class Public {
  public:
-  Public(const std::string &name, IPawnScript *script, bool use_caching = false);
+  Public(const std::string &name, AMX *amx, bool use_caching = false);
 
   template <typename... Args>
   inline cell Exec(Args... args) {
@@ -35,21 +35,21 @@ class Public {
 
     if (use_caching_) {
       if (!cached_) {
-        script_->FindPublic(name_.c_str(), &index_);
+        amx_FindPublic(amx_, name_.c_str(), &index_);
         cached_ = true;
       }
     } else {
-      script_->FindPublic(name_.c_str(), &index_);
+      amx_FindPublic(amx_, name_.c_str(), &index_);
     }
 
     if constexpr (sizeof...(Args) != 0) {
       Push(args...);
     }
 
-    script_->Exec(&retval, index_);
+    amx_Exec(amx_, &retval, index_);
 
     if (amx_addr_to_release_) {
-      script_->Release(amx_addr_to_release_);
+      amx_Release(amx_, amx_addr_to_release_);
       amx_addr_to_release_ = 0;
     }
 
@@ -71,24 +71,24 @@ class Public {
       if constexpr (std::is_same<T, const char *>::value ||
                     std::is_same<T, char *>::value) {
         cell amx_addr{};
-        script_->PushString(&amx_addr, nullptr, arg, false, false);
+        amx_PushString(amx_, &amx_addr, nullptr, arg, false, false);
         if (!amx_addr_to_release_) {
           amx_addr_to_release_ = amx_addr;
         }
       } else {
-        script_->Push(reinterpret_cast<cell>(arg));
+        amx_Push(amx_, reinterpret_cast<cell>(arg));
       }
     } else if constexpr (std::is_floating_point<T>::value) {
-      script_->Push(amx_ftoc(arg));
+      amx_Push(amx_, amx_ftoc(arg));
     } else if constexpr (std::is_same<typename std::decay<T>::type,
                                       std::string>::value) {
       Push(arg.c_str());
     } else {
-      script_->Push(static_cast<cell>(arg));
+      amx_Push(amx_, static_cast<cell>(arg));
     }
   }
 
-  IPawnScript *script_;
+  AMX *amx_{};
   std::string name_;
   int index_{};
   bool exists_{};
@@ -99,30 +99,22 @@ class Public {
 
 using PublicPtr = std::shared_ptr<Public>;
 
-class Script {
- public:
-  void Init(IPawnScript *pawn_script);
+struct ScriptData {
+  AMX *amx_{};
 
-  AMX *GetAmx() const;
+  void SetAMX(AMX *amx) { amx_ = amx; }
 
-  bool OnLoad();
-
-  cell BS_New();
-  cell BS_NewCopy(BitStream *bs);
-  cell BS_Delete(cell *bs);
-  cell BS_WriteValue(cell *params);
-  cell BS_ReadValue(cell *params);
-
-  void PR_Init();
-  void PR_RegHandler(unsigned char event_id, const std::string &public_name,
-                     PR_EventType type);
-
-  BitStream *GetBitStream(cell handle);
-
+  void OnLoad();
   bool ExecPublic(const PublicPtr &pub, int player_id, unsigned char event_id,
                   BitStream *bs);
-
   bool CallbackExec(const PublicPtr &pub, int player_id, BitStream *bs);
+
+  void InitPublic(PR_EventType type, const std::string &public_name);
+  void InitHandler(unsigned char event_id, const std::string &public_name,
+                   PR_EventType type);
+  void InitHandlers();
+  cell BS_WriteValue(cell *params);
+  cell BS_ReadValue(cell *params);
 
   template <PR_EventType event_type>
   bool OnEvent(int player_id, unsigned char event_id, BitStream *bs) {
@@ -157,14 +149,8 @@ class Script {
  private:
   template <typename T, bool compressed = false>
   void WriteValue(BitStream *bs, cell value);
-
   template <typename T, bool compressed = false>
   cell ReadValue(BitStream *bs);
-
-  void InitPublic(PR_EventType type, const std::string &public_name);
-  void InitHandler(unsigned char event_id, const std::string &public_name,
-                   PR_EventType type);
-  void InitHandlers();
 
   cell *GetPhysAddr(cell amx_addr);
   std::string GetString(cell amx_addr);
@@ -172,10 +158,7 @@ class Script {
   std::string GetPublicName(int index);
   std::shared_ptr<Public> MakePublic(const std::string &name,
                                      bool use_caching = false);
-
   void AssertMinParams(std::size_t min_count, cell *params) const;
-
-  IPawnScript *pawn_script_{};
 
   const std::regex regex_reg_handler_public_name_{
       R"(^pr_r(?:ip|ir|op|or|irp|iip|oip|icr)_\w+$)"};
@@ -183,16 +166,12 @@ class Script {
   std::shared_ptr<Config> config_;
 
   std::list<PublicPtr> publics_reg_handler_;
-
   std::array<PublicPtr, PR_NUMBER_OF_EVENT_TYPES> publics_;
   std::array<std::array<std::list<PublicPtr>, PR_MAX_HANDLERS>,
              PR_NUMBER_OF_EVENT_TYPES>
       handlers_;
-
   PublicPtr public_on_outcoming_packet_;
   PublicPtr public_on_outcoming_rpc_;
-
-  BitStreamPool bitstream_pool_;
 };
 
-#endif  // PAWNRAKNET_SCRIPT_H_
+#endif  // PAWNRAKNET_SCRIPT_DATA_H_

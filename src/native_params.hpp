@@ -39,8 +39,12 @@ public:
   {
     try
     {
-      value_ = Plugin::GetScript(amx).GetBitStream(params[idx]);
-      if (value_ == nullptr) error_ = true;
+      value_ = Plugin::Instance().GetPool().Get(params[idx]);
+      if (value_ == nullptr) {
+        // Fallback: direct pointer reinterpretation for callback BitStreams
+        value_ = reinterpret_cast<BitStream*>(static_cast<uintptr_t>(params[idx]));
+        if (value_ == nullptr) error_ = true;
+      }
     }
     catch (const std::exception &e)
     {
@@ -72,7 +76,10 @@ public:
   {
     try
     {
-      value_ = Plugin::GetScript(amx).GetBitStream(params[idx]);
+      value_ = Plugin::Instance().GetPool().Get(params[idx]);
+      if (value_ == nullptr) {
+        value_ = reinterpret_cast<BitStream*>(static_cast<uintptr_t>(params[idx]));
+      }
     }
     catch (const std::exception &e)
     {

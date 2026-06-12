@@ -64,46 +64,53 @@ void Plugin::Unload() {
   try {
     plugin.OnUnload();
   } catch (const std::exception &e) {
-    plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(), __func__,
-                        e.what());
+    plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(),
+                        __func__, e.what());
   }
 }
 
 void Plugin::AddScript(IPawnScript *pawn_script) {
   auto &plugin = Instance();
+  AMX *amx = pawn_script->GetAMX();
 
   try {
-    auto script = std::make_shared<Script>();
+    // Create or get ScriptData entry (default constructs if not exist)
+    auto &data = plugin.scripts_data_[amx];
+    data.SetAMX(amx);
 
-    script->Init(pawn_script);
+    // Add to script list for EveryScript iteration
+    plugin.script_list_.push_back(pawn_script);
 
-    plugin.scripts_.push_back(script);
-
-    pawn_natives::AmxLoad(pawn_script->GetAMX());
+    pawn_natives::AmxLoad(amx);
 
     int num_manual = 0;
-    while (manual_natives[num_manual].name != nullptr) num_manual++;
-    if (num_manual > 0) pawn_script->Register(manual_natives, num_manual);
+    while (manual_natives[num_manual].name != nullptr)
+      num_manual++;
+    if (num_manual > 0)
+      pawn_script->Register(manual_natives, num_manual);
 
-    if (!script->OnLoad()) {
-      plugin.scripts_.remove(script);
-      return;
-    }
+    data.OnLoad();
   } catch (const std::exception &e) {
-    plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(), __func__,
-                        e.what());
+    plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(),
+                        __func__, e.what());
   }
 }
 
-void Plugin::RemoveScript(AMX *amx) {
+void Plugin::RemoveScript(IPawnScript *pawn_script) {
   auto &plugin = Instance();
+  AMX *amx = pawn_script->GetAMX();
 
-  auto it = std::find_if(
-      plugin.scripts_.begin(), plugin.scripts_.end(),
-      [amx](auto &s) { return s->GetAmx() == amx; });
+  // Free BitStreams owned by this script
+  plugin.pool_.FreeByOwner(amx);
 
-  if (it != plugin.scripts_.end()) {
-    plugin.scripts_.erase(it);
+  // Remove ScriptData
+  plugin.scripts_data_.erase(amx);
+
+  // Remove from script list
+  auto it = std::find(plugin.script_list_.begin(),
+                      plugin.script_list_.end(), pawn_script);
+  if (it != plugin.script_list_.end()) {
+    plugin.script_list_.erase(it);
   }
 }
 
@@ -113,41 +120,15 @@ void Plugin::ProcessTick() {
   try {
     plugin.OnProcessTick();
   } catch (const std::exception &e) {
-    plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(), __func__,
-                        e.what());
+    plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(),
+                        __func__, e.what());
   }
 }
 
-Script &Plugin::GetScript(AMX *amx) {
-  auto &plugin = Instance();
-
-  auto it = std::find_if(
-      plugin.scripts_.begin(), plugin.scripts_.end(),
-      [amx](auto &s) { return s->GetAmx() == amx; });
-
-  if (it == plugin.scripts_.end()) {
-    throw std::runtime_error{"Script not found"};
-  }
-
-  return **it;
-}
-
-bool Plugin::EveryScript(
-    std::function<bool(const std::shared_ptr<Script> &)> func) {
-  auto &plugin = Instance();
-
-  for (const auto &script : plugin.scripts_) {
-    try {
-      if (!func(script)) {
-        return false;
-      }
-    } catch (const std::exception &e) {
-      plugin.core_->logLn(LogLevel::Error, "[%s] %s: %s", plugin.Name(),
-                          __func__, e.what());
-    }
-  }
-
-  return true;
+ScriptData &Plugin::GetScriptData(AMX *amx) {
+  auto &data = Instance().scripts_data_[amx];
+  data.SetAMX(amx);
+  return data;
 }
 
 std::tuple<int, int, int> Plugin::VersionToTuple(int version) {
