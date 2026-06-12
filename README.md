@@ -1,7 +1,11 @@
 # Pawn.RakNet
-[![GitHub Release](https://img.shields.io/github/release/katursis/Pawn.RakNet.svg)](https://github.com/katursis/Pawn.RakNet/releases/latest)
+[![GitHub Release](https://img.shields.io/github/release/dockfries/Pawn.RakNet.svg)](https://github.com/katursis/Pawn.RakNet/releases/latest)
 
-Plugin for **SA:MP 0.3.7** server that allows you to capture and analyze RakNet traffic
+Component for **Open Multiplayer** server that allows you to capture and analyze RakNet traffic
+
+> ⚠️ Heavily Modified Fork​
+> 
+> This repository contains extensive modifications and designed to work with infernus without polyfill.
 
 ## Main features
 * Capture, modify, filter incoming/outgoing packets and RPCs
