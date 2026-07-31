@@ -28,13 +28,19 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item build/pawnraknet.dll package/
+          Copy-Item src/Pawn.RakNet.inc package/
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: pawnraknet-${{ env.PLUGIN_VERSION }}-win-${{ matrix.arch }}
-          path: |
-            build/pawnraknet.dll
-            src/Pawn.RakNet.inc
+          path: package/*
+          if-no-files-found: error
 
   build-linux:
     runs-on: ubuntu-latest
