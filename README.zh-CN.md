@@ -1,26 +1,26 @@
 # Pawn.RakNet
 [![GitHub Release](https://img.shields.io/github/release/dockfries/Pawn.RakNet.svg)](https://github.com/dockfries/Pawn.RakNet/releases/latest)
 
-**English** | [简体中文](README.zh-CN.md)
+[English](README.md) | **简体中文**
 
-Component for **Open Multiplayer** server that allows you to capture and analyze RakNet traffic
+**Open Multiplayer** 服务器组件，允许你捕获和分析 RakNet 网络流量
 
-> ⚠️ Heavily Modified Fork​
-> 
-> This repository contains extensive modifications and designed to work with infernus without polyfill.
+> ⚠️ 深度修改的 Fork
+>
+> 本仓库包含大量修改，旨在无需 polyfill 的情况下与 infernus 配合使用。
 
-## Main features
-* Capture, modify, filter incoming/outgoing packets and RPCs
-* Send your own packets and RPCs to a player
-* Emulate incoming packets and RPCs from a player
+## 主要特性
+* 捕获、修改、过滤传入/传出的数据包（packets）和 RPC
+* 向玩家发送自定义的数据包和 RPC
+* 模拟来自玩家的传入数据包和 RPC
 
-## Documentation
+## 文档
 
-[Pawn.RakNet wiki](https://github.com/katursis/Pawn.RakNet/wiki)
+[Pawn.RakNet 维基](https://github.com/katursis/Pawn.RakNet/wiki)
 
-[Official RakNet manual](http://www.jenkinssoftware.com/raknet/manual/index.html)
+[官方 RakNet 手册](http://www.jenkinssoftware.com/raknet/manual/index.html)
 
-## Simple example
+## 简单示例
 ```pawn
 const PLAYER_SYNC = 207;
 
@@ -28,7 +28,7 @@ IPacket:PLAYER_SYNC(playerid, BitStream:bs)
 {
   new onFootData[PR_OnFootSync];
 
-  BS_IgnoreBits(bs, 8); // ignore packet id (uint8)
+  BS_IgnoreBits(bs, 8); // 忽略数据包 id (uint8)
   BS_ReadOnFootSync(bs, onFootData);
 
   printf(
