@@ -33,8 +33,9 @@ Public::Public(const std::string &name, AMX *amx, bool use_caching)
     : amx_{amx},
       name_{name},
       use_caching_{use_caching} {
-  exists_ = amx_FindPublic(amx_, name_.c_str(), &index_) == AMX_ERR_NONE &&
-            index_ >= 0;
+  // No cached exists_: Exists() queries amx_FindPublic live so that
+  // sampgdk's forged negative index (for C++-only callbacks) is seen at
+  // call time, not at construction time (the hook may not be active yet).
 }
 
 cell *ScriptData::GetPhysAddr(cell amx_addr) {
@@ -471,6 +472,15 @@ void ScriptData::OnLoad() {
           MakePublic(public_name, config_->UseCaching());
     }
   }
+
+  // Always bind the built-in callbacks. When the script does not declare
+  // them, sampgdk's forged FindPublic index (negative) keeps Exists() true
+  // so the exec still reaches sampgdk's OnPublicCall; without sampgdk the
+  // FindPublic genuinely fails and nothing is dispatched.
+  InitPublic(PR_INCOMING_PACKET, "OnIncomingPacket");
+  InitPublic(PR_INCOMING_RPC, "OnIncomingRPC");
+  InitPublic(PR_OUTGOING_PACKET, "OnOutgoingPacket");
+  InitPublic(PR_OUTGOING_RPC, "OnOutgoingRPC");
 
   InitHandlers();
 }

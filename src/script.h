@@ -56,7 +56,13 @@ class Public {
     return retval;
   }
 
-  bool Exists() const { return exists_; }
+  // Query the public's existence live. Do not cache the result at
+  // construction time: sampgdk's FindPublic hook (which forges a negative
+  // index for callbacks that only exist in C++) may not be installed yet
+  // when the Public is constructed, so a cached bool would be stale.
+  bool Exists() {
+    return amx_FindPublic(amx_, name_.c_str(), &index_) == AMX_ERR_NONE;
+  }
 
  private:
   template <typename T, typename... Args>
@@ -91,7 +97,6 @@ class Public {
   AMX *amx_{};
   std::string name_;
   int index_{};
-  bool exists_{};
   bool cached_{};
   bool use_caching_{};
   cell amx_addr_to_release_{};
